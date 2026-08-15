@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shorts Maker Pro</title>
+
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; background: #0f172a; color: #e5e7eb; margin: 0; padding: 16px; }
+    main { max-width: 800px; margin: 0 auto; }
+    h1 { color: #ffffff; margin-bottom: 8px; }
+    p { color: #94a3b8; margin-top: 0; }
+    .card, .short { background: #111827; border: 1px solid #1f2937; border-radius: 14px; padding: 14px; margin-bottom: 14px; }
+    label { display: block; margin-bottom: 12px; color: #cbd5e1; font-size: 14px; font-weight: bold; }
+    input, select, textarea, button { width: 100%; margin-top: 6px; padding: 12px; border-radius: 10px; border: 1px solid #374151; background: #0b1220; color: #e5e7eb; outline: none; }
+    textarea { min-height: 90px; resize: vertical; }
+    button { background: #38bdf8; color: #082f49; font-weight: bold; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .error { display: none; margin-top: 12px; padding: 12px; border-radius: 10px; background: rgba(239,68,68,.12); border: 1px solid rgba(239,68,68,.4); color: #fecaca; white-space: pre-wrap; }
+    .hint { color: #64748b; font-size: 12px; margin-top: 10px; line-height: 1.5; }
+    #resultsTitle { display: none; color: #ffffff; margin: 20px 0 12px; }
+    .short-title { color: #ffffff; font-size: 18px; font-weight: bold; margin-bottom: 8px; }
+    .time { color: #38bdf8; font-weight: bold; font-size: 13px; margin-bottom: 8px; }
+    .transcript { color: #cbd5e1; line-height: 1.5; white-space: pre-wrap; margin-bottom: 10px; }
+    .meta, .reason { color: #94a3b8; font-size: 13px; line-height: 1.5; margin-bottom: 8px; }
+    .tags { color: #a78bfa; font-size: 13px; margin-bottom: 10px; word-break: break-word; }
+    pre { background: #0b1220; border: 1px solid #334155; color: #93c5fd; padding: 10px; border-radius: 10px; font-size: 12px; white-space: pre-wrap; word-break: break-all; margin-bottom: 10px; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .actions button { background: #1f2937; color: #e5e7eb; border: 1px solid #374151; }
+    .trim-btn { grid-column: 1 / -1; background: #22c55e !important; color: #052e16 !important; border: none !important; }
+    @media (max-width: 600px) { .actions { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Shorts Maker Pro</h1>
+    <p>Upload a video, get shorts, and trim + download vertical clips — all in your browser.</p>
+
+    <div class="card">
+      <label>
+        YouTube URL (optional)
+        <input id="youtubeUrl" type="text" placeholder="https://www.youtube.com/watch?v=..." />
+      </label>
+
+      <label>
+        Content Theme
+        <select id="ideology">
+          <option value="general">General</option>
+          <option value="motivation">Motivation</option>
+          <option value="business">Business</option>
+          <option value="finance">Finance</option>
+          <option value="education">Education</option>
+          <option value="tech">Tech</option>
+          <option value="storytelling">Storytelling</option>
+          <option value="custom">Custom Keywords</option>
+        </select>
+      </label>
+
+      <label>
+        Custom Keywords
+        <input id="customKeywords" type="text" placeholder="money, discipline, startup" />
+      </label>
+
+      <label>
+        Number of Shorts
+        <select id="numberOfShorts">
+          <option value="1">1</option>
+          <option value="3" selected>3</option>
+          <option value="5">5</option>
+          <option value="8">8</option>
+          <option value="10">10</option>
+        </select>
+      </label>
+
+      <label>
+        Target Length
+        <select id="maxSeconds">
+          <option value="30">Around 30 seconds</option>
+          <option value="45" selected>Around 45 seconds</option>
+          <option value="60">Around 60 seconds</option>
+        </select>
+      </label>
+
+      <label>
+        Paste Transcript (optional — for smart selection)
+        <textarea id="manualTranscript" placeholder="Optional: paste transcript with or without timestamps"></textarea>
+      </label>
+
+      <label>
+        Your Video File (for Trim & Download)
+        <input id="videoFile" type="file" accept="video/*" />
+      </label>
+
+      <button id="generateBtn" onclick="generateShorts()">Generate Shorts Ideas</button>
+
+      <div class="hint">
+        Modes: 1) Upload video → auto split into shorts. 2) Video + transcript → smart theme selection. 3) YouTube link → transcript analysis. Use Trim & Download to export vertical MP4.
+      </div>
+
+      <div id="errorBox" class="error"></div>
+    </div>
+
+    <h2 id="resultsTitle">Generated Shorts</h2>
+    <div id="results"></div>
+  </main>
+
+  <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+  <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/util.js"></script>
+
+  <script>
+    let currentShorts = [];
+
+    async function generateShorts() {
+      const youtubeUrl = document.getElementById("youtubeUrl").value.trim();
+      const ideology = document.getElementById("ideology").value;
+      const customKeywords = document.getElementById("customKeywords").value.trim();
+      const numberOfShorts = document.getElementById("numberOfShorts").value;
+      const maxSeconds = document.getElementById("maxSeconds").value;
+      const manualTranscript = document.getElementById("manualTranscript").value;
+
+      const errorBox = document.getElementById("errorBox");
+      const results = document.getElementById("results");
+      const resultsTitle = document.getElementById("resultsTitle");
+      const generateBtn = document.getElementById("generateBtn");
+
+      errorBox.style.display = "none";
+      errorBox.textContent = "";
+      results.innerHTML = "";
+      resultsTitle.style.display = "none";
+
+      const fileInput = document.getElementById("videoFile");
+      const file = fileInput.files && fileInput.files[0];
+
+      if (!youtubeUrl && !manualTranscript.trim() && !file) {
+        errorBox.textContent =
+          "Please upload a video file, or paste a YouTube URL, or paste a transcript.";
+        errorBox.style.display = "block";
+        return;
+      }
+
+      generateBtn.disabled = true;
+      generateBtn.textContent = "Processing...";
+
+      try {
+        // Mode A: uploaded video, no transcript → auto split on device
+        if (file && !manualTranscript.trim()) {
+          const duration = await getVideoDuration(file);
+          renderResults({ shorts: buildAutoSplitShorts(duration) });
+          return;
+        }
+
+        // Mode B / C: smart transcript mode via server
+        const response = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            youtubeUrl,
+            ideology,
+            customKeywords,
+            numberOfShorts: Number(numberOfShorts),
+            maxSeconds: Number(maxSeconds),
+            manualTranscript
+          })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Something went wrong.");
+        }
+
+        renderResults(data);
+      } catch (error) {
+        errorBox.textContent = error.message;
+        errorBox.style.display = "block";
+      } finally {
+        generateBtn.disabled = false;
+        generateBtn.textContent = "Generate Shorts Ideas";
+      }
+    }
+
+    function getVideoDuration(file) {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const video = document.createElement("video");
+        video.preload = "metadata";
+        video.onloadedmetadata = () => {
+          const d = video.duration;
+          URL.revokeObjectURL(url);
+          resolve(d);
+        };
+        video.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error("Could not read the video file."));
+        };
+        video.src = url;
+      });
+    }
+
+    function formatTimeClient(totalSeconds) {
+      const sec = Math.max(0, Math.floor(totalSeconds));
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
+      const s = sec % 60;
+      if (h > 0) {
+        return h + ":" + String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+      }
+      return m + ":" + String(s).padStart(2, "0");
+    }
+
+    function buildAutoSplitShorts(duration) {
+      const count = Number(document.getElementById("numberOfShorts").value) || 3;
+      const len = Number(document.getElementById("maxSeconds").value) || 45;
+
+      const pad = Math.min(10, duration * 0.05);
+      const usableStart = pad;
+      const usable = duration - pad * 2;
+
+      const shorts = [];
+
+      for (let i = 0; i < count; i++) {
+        const chunk = usable / count;
+        let start = usableStart + chunk * i + Math.max(0, (chunk - len) / 2);
+        start = Math.max(0, Math.floor(start));
+        const end = Math.min(start + len, Math.floor(duration));
+
+        shorts.push({
+          id: i + 1,
+          title: "Short " + (i + 1) + " (" + formatTimeClient(start) + " - " + formatTimeClient(end) + ")",
+          startTime: formatTimeClient(start),
+          endTime: formatTimeClient(end),
+          startSeconds: start,
+          endSeconds: end,
+          durationSeconds: end - start,
+          transcript: "Auto-selected segment " + (i + 1) + " of " + count + " from your uploaded video.",
+          hashtags: "#shorts #video #content",
+          reason: "Evenly spaced segment from your video. Use Trim & Download to export it.",
+          score: "-",
+          ffmpegCommand: 'ffmpeg -ss ' + start + ' -to ' + end + ' -i input.mp4 -vf "crop=ih*9/16:ih,scale=1080:1920" -c:a copy short-' + (i + 1) + '.mp4'
+        });
+      }
+
+      return shorts;
+    }
+
+    function renderResults(data) {
+      const results = document.getElementById("results");
+      const resultsTitle = document.getElementById("resultsTitle");
+
+      currentShorts = data.shorts || [];
+
+      if (!currentShorts.length) {
+        results.innerHTML = '<div class="card">No shorts found.</div>';
+        return;
+      }
+
+      resultsTitle.style.display = "block";
+
+      currentShorts.forEach((short, index) => {
+        const card = document.createElement("div");
+        card.className = "short";
+
+        card.innerHTML = `
+          <div class="short-title">${escapeHtml(short.title)}</div>
+          <div class="time">${short.startTime} - ${short.endTime}</div>
+          <div class="transcript">${escapeHtml(short.transcript)}</div>
+          <div class="meta">Duration: ${short.durationSeconds}s | Score: ${escapeHtml(String(short.score))}</div>
+          <div class="reason">${escapeHtml(short.reason)}</div>
+          <div class="tags">${escapeHtml(short.hashtags)}</div>
+          <pre>${escapeHtml(short.ffmpegCommand)}</pre>
+          <div class="actions">
+            <button data-copy="title" data-index="${index}">Copy Title</button>
+            <button data-copy="transcript" data-index="${index}">Copy Transcript</button>
+            <button data-copy="hashtags" data-index="${index}">Copy Hashtags</button>
+            <button data-copy="ffmpeg" data-index="${index}">Copy FFmpeg</button>
+            <button class="trim-btn" data-trim="${index}">Trim & Download</button>
+          </div>
+        `;
+
+        results.appendChild(card);
+      });
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    document.addEventListener("click", async event => {
+      const button = event.target.closest("[data-copy]");
+
+      if (!button) return;
+
+      const index = Number(button.dataset.index);
+      const type = button.dataset.copy;
+      const short = currentShorts[index];
+
+      if (!short) return;
+
+      let textToCopy = "";
+
+      if (type === "title") textToCopy = short.title;
+      else if (type === "transcript") textToCopy = short.transcript;
+      else if (type === "hashtags") textToCopy = short.hashtags;
+      else if (type === "ffmpeg") textToCopy = short.ffmpegCommand;
+
+      try {
+        await navigator.clipboard.writeText(textToCopy);
+
+        const originalText = button.dataset.originalText || button.textContent.trim();
+        button.dataset.originalText = originalText;
+        button.textContent = "Copied";
+
+        setTimeout(() => {
+          button.textContent = originalText;
+        }, 1200);
+      } catch {
+        alert("Copy failed. Please copy manually.");
+      }
+    });
+
+    document.addEventListener("click", async event => {
+      const trimBtn = event.target.closest("[data-trim]");
+
+      if (!trimBtn) return;
+
+      await trimAndDownload(Number(trimBtn.dataset.trim), trimBtn);
+    });
+
+    async function ensureFFmpeg() {
+      if (window.__ffmpegReady) return window.__ffmpeg;
+
+      const { FFmpeg } = window.FFmpegWASM;
+      const ffmpeg = new FFmpeg();
+
+      ffmpeg.on("log", ({ message }) => console.log(message));
+
+      await ffmpeg.load({
+        coreURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js",
+        wasmURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.wasm"
+      });
+
+      window.__ffmpeg = ffmpeg;
+      window.__ffmpegReady = true;
+      return ffmpeg;
+    }
+
+    async function trimAndDownload(index, button) {
+      const short = currentShorts[index];
+      const fileInput = document.getElementById("videoFile");
+      const file = fileInput.files && fileInput.files[0];
+
+      if (!file) {
+        alert("Please select your video file first (Your Video File box).");
+        return;
+      }
+
+      if (!short) return;
+
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = "Loading FFmpeg (first time ~30MB)...";
+
+      try {
+        const ffmpeg = await ensureFFmpeg();
+        const { fetchFile } = window.FFmpegUtil;
+
+        button.textContent = "Reading video...";
+
+        await ffmpeg.writeFile("input.mp4", await fetchFile(file));
+
+        const outName = "short-" + short.id + ".mp4";
+
+        button.textContent = "Cutting video... (may take a minute)";
+
+        const baseArgs = [
+          "-ss", String(short.startSeconds),
+          "-to", String(short.endSeconds),
+          "-i", "input.mp4"
+        ];
+
+        let code = await ffmpeg.exec([
+          ...baseArgs,
+          "-vf", "crop=ih*9/16:ih,scale=720:1280",
+          "-c:v", "libx264",
+          "-preset", "ultrafast",
+          "-c:a", "aac",
+          outName
+        ]);
+
+        if (code !== 0) {
+          code = await ffmpeg.exec([
+            ...baseArgs,
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-c:a", "aac",
+            outName
+          ]);
+        }
+
+        const data = await ffmpeg.readFile(outName);
+
+        const blob = new Blob([data], { type: "video/mp4" });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = outName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+
+        try {
+          await ffmpeg.deleteFile("input.mp4");
+          await ffmpeg.deleteFile(outName);
+        } catch (e) {
+          // ignore cleanup errors
+        }
+
+        button.textContent = "Downloaded ✔";
+      } catch (err) {
+        console.error(err);
+        alert("Trim failed: " + err.message);
+        button.textContent = originalText;
+      } finally {
+        button.disabled = false;
+        setTimeout(() => {
+          button.textContent = originalText;
+        }, 2500);
+      }
+    }
+  </script>
+</body>
+</html>
