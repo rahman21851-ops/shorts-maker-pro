@@ -1,0 +1,19 @@
+{
+  "name": "shorts-maker-pro",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Upload a video, get shorts segments, trim and download vertical shorts in the browser.",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "youtube-transcript": "^1.0.0"
+  }
+}
